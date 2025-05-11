@@ -1,5 +1,6 @@
 import 'package:example/pages/random_map.dart';
 import 'package:example/pages/supported_countries_map.dart';
+import 'package:example/pages/zoom_to_country_map.dart';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -33,7 +34,7 @@ class _MyHomePageState extends State<MyHomePage>
 
   @override
   void initState() {
-    controller = TabController(length: 2, initialIndex: 0, vsync: this);
+    controller = TabController(length: 3, initialIndex: 0, vsync: this);
     super.initState();
   }
 
@@ -48,6 +49,7 @@ class _MyHomePageState extends State<MyHomePage>
             bottom: TabBar(controller: controller, tabs: [
               ListTile(title: Center(child: Text('Supported countries'))),
               ListTile(title: Center(child: Text('Random colors'))),
+              ListTile(title: Center(child: Text('Zoom To Country'))),
               // ListTile(title: Center(child: Text('Africa'))),
             ])),
         body: Container(
@@ -59,6 +61,7 @@ class _MyHomePageState extends State<MyHomePage>
               children: [
                 SupportedCountriesMap(),
                 RandomWorldMapGenerator(),
+                ZoomToCountryMap()
                 // AfricaContinent()
               ]),
         ));

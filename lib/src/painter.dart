@@ -5,6 +5,13 @@ import '../countries_world_map.dart';
 /// This painter will paint a world map with all///
 /// Giving countries a different color based on a data set can help visualize data.
 
+import 'package:flutter/material.dart';
+import '../components/canvas/touchy_canvas.dart';
+import '../countries_world_map.dart';
+
+/// This painter will paint a world map with all///
+/// Giving countries a different color based on a data set can help visualize data.
+
 class SimpleMapPainter extends CustomPainter {
   final List<Map<String, dynamic>> instructions;
 
@@ -19,6 +26,16 @@ class SimpleMapPainter extends CustomPainter {
 
   final CountryBorder? countryBorder;
 
+  /// The unique ID of the currently selected country.
+  final String? selectedCountryId;
+
+  /// The fill color for the selected country.
+  final Color selectionColor;
+
+  /// The border style for the selected country.
+  final CountryBorder selectionBorder;
+
+
   const SimpleMapPainter({
     required this.instructions,
     required this.defaultColor,
@@ -26,6 +43,9 @@ class SimpleMapPainter extends CustomPainter {
     required this.context,
     required this.callback,
     this.countryBorder,
+    this.selectedCountryId, // Add new parameter
+    required this.selectionColor, // Add new parameter
+    required this.selectionBorder, // Add new parameter
   });
 
   @override
@@ -67,11 +87,26 @@ class SimpleMapPainter extends CustomPainter {
 
       // Draw country body
       String uniqueID = countryPathList[i].uniqueID;
-      Paint paint = Paint()..color = colors?[uniqueID] ?? defaultColor;
+      Paint paint = Paint();
+
+      // Determine color based on selection
+      if (uniqueID == selectedCountryId) {
+        paint.color = selectionColor;
+      } else {
+        paint.color = colors?[uniqueID] ?? defaultColor;
+      }
+
       canvas.drawPath(path, paint, onTapUp: onTapUp);
 
       // Draw country border
-      if (countryBorder != null) {
+      // Determine border style based on selection
+      if (uniqueID == selectedCountryId) {
+         paint.color = selectionBorder.color;
+         paint.strokeWidth = selectionBorder.width;
+         paint.style = PaintingStyle.stroke;
+         canvas.drawPath(path, paint, onTapUp: onTapUp);
+      }
+      else if (countryBorder != null) {
         paint.color = countryBorder!.color;
         paint.strokeWidth = countryBorder!.width;
         paint.style = PaintingStyle.stroke;
@@ -81,8 +116,16 @@ class SimpleMapPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(SimpleMapPainter oldDelegate) =>
-      oldDelegate.colors != colors;
+  bool shouldRepaint(SimpleMapPainter oldDelegate) {
+    // Repaint if colors, defaultColor, countryBorder, selectedCountryId,
+    // selectionColor, or selectionBorder changes.
+    return oldDelegate.colors != colors ||
+           oldDelegate.defaultColor != defaultColor ||
+           oldDelegate.countryBorder != countryBorder ||
+           oldDelegate.selectedCountryId != selectedCountryId ||
+           oldDelegate.selectionColor != selectionColor ||
+           oldDelegate.selectionBorder != selectionBorder;
+  }
 }
 
 class SimpleMapInstruction {

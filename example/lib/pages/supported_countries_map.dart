@@ -20,6 +20,7 @@ class _SupportedCountriesMapState extends State<SupportedCountriesMap> {
           height: MediaQuery.of(context).size.height,
           width: MediaQuery.of(context).size.width,
           child: InteractiveViewer(
+            
             maxScale: 75.0,
             child: Row(
               children: [
@@ -27,6 +28,7 @@ class _SupportedCountriesMapState extends State<SupportedCountriesMap> {
                   width: MediaQuery.of(context).size.width * 0.92,
                   // Actual widget from the Countries_world_map package.
                   child: SimpleMap(
+                    
                     instructions: SMapWorld.instructions,
 
                     // If the color of a country is not specified it will take in a default color.
