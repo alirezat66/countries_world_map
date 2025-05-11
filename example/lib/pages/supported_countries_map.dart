@@ -4,6 +4,11 @@ import 'package:countries_world_map/countries_world_map.dart';
 import 'package:countries_world_map/data/maps/world_map.dart';
 import 'package:flutter/material.dart';
 
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:countries_world_map/countries_world_map.dart';
+import 'package:countries_world_map/data/maps/world_map.dart';
+
 class SupportedCountriesMap extends StatefulWidget {
   const SupportedCountriesMap({Key? key}) : super(key: key);
 
@@ -11,196 +16,384 @@ class SupportedCountriesMap extends StatefulWidget {
   _SupportedCountriesMapState createState() => _SupportedCountriesMapState();
 }
 
-class _SupportedCountriesMapState extends State<SupportedCountriesMap> {
+class _SupportedCountriesMapState extends State<SupportedCountriesMap>
+    with SingleTickerProviderStateMixin {
+  // Controller for the InteractiveViewer
+  final TransformationController _transformationController =
+      TransformationController();
+
+  // Animation controller for smooth transitions
+  late AnimationController _animationController;
+  Animation<Matrix4>? _animation;
+
+  // Country selection
+  String? selectedCountry;
+
+  // Store country center points
+  final Map<String, Offset> _countryCenters = {};
+
+  // Test dropdown
+  List<String> _topCountries = [
+    'us',
+    'ca',
+    'gb',
+    'fr',
+    'de',
+    'jp',
+    'au',
+    'br',
+    'ru',
+    'in',
+    'cn',
+    'it',
+    'es',
+    'mx',
+    'kr',
+    'sa',
+    'za',
+    'eg',
+    'tr',
+    'id',
+    'ng'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateCountryCenters();
+
+    // Initialize animation controller
+    _animationController = AnimationController(
+      vsync: this,
+      duration:
+          Duration(milliseconds: 500), // Animation duration - adjust as needed
+    );
+
+    _animationController.addListener(() {
+      if (_animation != null) {
+        _transformationController.value = _animation!.value;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  // Calculate center points for common countries
+  void _calculateCountryCenters() {
+    try {
+      Map<String, dynamic> mapData = json.decode(SMapWorld.instructions);
+      double width = mapData['w'].toDouble();
+      double height = mapData['h'].toDouble();
+
+      List paths = mapData['i'];
+      for (var path in paths) {
+        try {
+          String id = path['u'];
+          List<String> instructions = List<String>.from(path['i']);
+
+          // Calculate bounding box
+          double minX = double.infinity, minY = double.infinity;
+          double maxX = -double.infinity, maxY = -double.infinity;
+          int pointCount = 0;
+
+          for (String instruction in instructions) {
+            if (instruction.startsWith('m') || instruction.startsWith('l')) {
+              List<String> coords = instruction.substring(1).split(',');
+              if (coords.length >= 2) {
+                double x = double.parse(coords[0]);
+                double y = double.parse(coords[1]);
+
+                minX = x < minX ? x : minX;
+                minY = y < minY ? y : minY;
+                maxX = x > maxX ? x : maxX;
+                maxY = y > maxY ? y : maxY;
+                pointCount++;
+              }
+            }
+          }
+
+          if (pointCount > 0) {
+            // Calculate center point in pixels
+            double centerX = (minX + maxX) / 2 * width;
+            double centerY = (minY + maxY) / 2 * height;
+            _countryCenters[id] = Offset(centerX, centerY);
+          }
+        } catch (e) {
+          print('Error processing country: $e');
+        }
+      }
+
+      print('Calculated ${_countryCenters.length} country centers');
+    } catch (e) {
+      print('Error calculating centers: $e');
+    }
+  }
+
+  // Method to center on a country with animation
+  void _centerOnCountry(String countryId) {
+    if (!_countryCenters.containsKey(countryId)) {
+      print('Country center not found: $countryId');
+      return;
+    }
+
+    try {
+      // Get the build context size
+      final RenderBox renderBox = context.findRenderObject() as RenderBox;
+      final Size viewportSize = renderBox.size;
+
+      // Get the current scale
+      final double currentScale =
+          _transformationController.value.getMaxScaleOnAxis();
+
+      // Get the center of the country
+      final Offset center = _countryCenters[countryId]!;
+
+      // Create a new matrix that preserves scale but centers on the country
+      final Matrix4 targetMatrix = Matrix4.identity()
+        ..scale(currentScale, currentScale)
+        ..translate(
+          -center.dx + viewportSize.width / (2 * currentScale),
+          -center.dy + viewportSize.height / (2 * currentScale),
+        );
+
+      // Create an animation from current to target matrix
+      _animation = Matrix4Tween(
+        begin: _transformationController.value,
+        end: targetMatrix,
+      ).animate(CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeInOut, // Smooth animation curve
+      ));
+
+      // Reset and start the animation
+      _animationController.reset();
+      _animationController.forward();
+
+      print('Animating to country: $countryId, scale: $currentScale');
+    } catch (e) {
+      print('Error centering country: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        SizedBox(
-          height: MediaQuery.of(context).size.height,
-          width: MediaQuery.of(context).size.width,
-          child: InteractiveViewer(
-            
+    return Scaffold(
+      body: Stack(
+        children: [
+          // Main map with InteractiveViewer
+          InteractiveViewer(
+            transformationController: _transformationController,
             maxScale: 75.0,
-            child: Row(
-              children: [
-                SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.92,
-                  // Actual widget from the Countries_world_map package.
-                  child: SimpleMap(
-                    
-                    instructions: SMapWorld.instructions,
+            constrained: true,
+            child: SimpleMap(
+              instructions: SMapWorld.instructions,
+              defaultColor: Colors.grey,
+              colors: _getCountryColors(),
+              countryBorder: CountryBorder(color: Colors.white),
+              callback: (id, name, tapDetails) {
+                setState(() {
+                  selectedCountry = id;
+                });
+                _centerOnCountry(id);
+              },
+            ),
+          ),
 
-                    // If the color of a country is not specified it will take in a default color.
-                    defaultColor: Colors.grey,
-                    // CountryColors takes in 250 different colors that will color each country the color you want. In this example it generates a random color each time SetState({}) is called.
-                    callback: (id, name, tapdetails) {
-                      goToCountry(id);
+          // Country selector dropdown
+          Positioned(
+            top: 20,
+            left: 20,
+            child: Container(
+              width: 200,
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Test Country Centering",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  SizedBox(height: 8),
+                  DropdownButton<String>(
+                    isExpanded: true,
+                    hint: Text('Select a country'),
+                    value: selectedCountry,
+                    items: _topCountries.map((code) {
+                      return DropdownMenuItem(
+                        value: code,
+                        child: Text(_getCountryName(code)),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          selectedCountry = value;
+                        });
+                        _centerOnCountry(value);
+                      }
                     },
-                    countryBorder: CountryBorder(color: Colors.white),
-                    colors: SMapWorldColors(
-                      eT: Colors.green,
-                      aR: Colors.green,
-                      aT: Colors.green,
-                      aZ: Colors.green,
-                      cL: Colors.green,
-                      cD: Colors.green,
-                      cG: Colors.green,
-                      hK: Colors.green,
-                      iN: Colors.green,
-                      iD: Colors.green,
-                      iL: Colors.green,
-                      iT: Colors.green,
-                      cI: Colors.green,
-                      mY: Colors.green,
-                      mT: Colors.green,
-                      mZ: Colors.green,
-                      nA: Colors.green,
-                      pS: Colors.green,
-                      pE: Colors.green,
-                      pH: Colors.green,
-                      pR: Colors.green,
-                      sL: Colors.green,
-                      zA: Colors.green,
-                      sD: Colors.green,
-                      eS: Colors.green,
-                      cH: Colors.green,
-                      gB: Colors.green,
-                      vE: Colors.green,
-                      vN: Colors.green,
-                      zM: Colors.green,
-                      zW: Colors.green,
-                      uS: Colors.green,
-                      aD: Colors.green,
-                      aO: Colors.green,
-                      aM: Colors.green,
-                      aU: Colors.green,
-                      bS: Colors.green,
-                      bH: Colors.green,
-                      bD: Colors.green,
-                      bY: Colors.green,
-                      bE: Colors.green,
-                      bT: Colors.green,
-                      bO: Colors.green,
-                      bW: Colors.green,
-                      bR: Colors.green,
-                      bN: Colors.green,
-                      bG: Colors.green,
-                      bF: Colors.green,
-                      bI: Colors.green,
-                      cV: Colors.green,
-                      cM: Colors.green,
-                      cA: Colors.green,
-                      cF: Colors.green,
-                      tD: Colors.green,
-                      cN: Colors.green,
-                      cO: Colors.green,
-                      cR: Colors.green,
-                      hR: Colors.green,
-                      cU: Colors.green,
-                      cY: Colors.green,
-                      cZ: Colors.green,
-                      dK: Colors.green,
-                      dJ: Colors.green,
-                      dO: Colors.green,
-                      eC: Colors.green,
-                      eG: Colors.green,
-                      sV: Colors.green,
-                      eE: Colors.green,
-                      fO: Colors.green,
-                      fI: Colors.green,
-                      fR: Colors.green,
-                      gE: Colors.green,
-                      dE: Colors.green,
-                      gR: Colors.green,
-                      gT: Colors.green,
-                      gN: Colors.green,
-                      hT: Colors.green,
-                      hN: Colors.green,
-                      hU: Colors.green,
-                      iR: Colors.green,
-                      iQ: Colors.green,
-                      iE: Colors.green,
-                      jM: Colors.green,
-                      jP: Colors.green,
-                      kZ: Colors.green,
-                      kE: Colors.green,
-                      xK: Colors.green,
-                      kG: Colors.green,
-                      lA: Colors.green,
-                      lV: Colors.green,
-                      lI: Colors.green,
-                      lT: Colors.green,
-                      lU: Colors.green,
-                      mK: Colors.green,
-                      mL: Colors.green,
-                      mX: Colors.green,
-                      mD: Colors.green,
-                      mE: Colors.green,
-                      mA: Colors.green,
-                      mM: Colors.green,
-                      nP: Colors.green,
-                      nL: Colors.green,
-                      nZ: Colors.green,
-                      nI: Colors.green,
-                      nG: Colors.green,
-                      nO: Colors.green,
-                      oM: Colors.green,
-                      pK: Colors.green,
-                      pA: Colors.green,
-                      pY: Colors.green,
-                      pL: Colors.green,
-                      pT: Colors.green,
-                      qA: Colors.green,
-                      rO: Colors.green,
-                      rU: Colors.green,
-                      rW: Colors.green,
-                      sM: Colors.green,
-                      sA: Colors.green,
-                      rS: Colors.green,
-                      sG: Colors.green,
-                      sK: Colors.green,
-                      sI: Colors.green,
-                      kR: Colors.green,
-                      lK: Colors.green,
-                      sE: Colors.green,
-                      sY: Colors.green,
-                      tW: Colors.green,
-                      tJ: Colors.green,
-                      tH: Colors.green,
-                      tR: Colors.green,
-                      uG: Colors.green,
-                      uA: Colors.green,
-                      aE: Colors.green,
-                      uY: Colors.green,
-                      uZ: Colors.green,
-                      yE: Colors.green,
-                    ).toMap(),
                   ),
+                ],
+              ),
+            ),
+          ),
+
+          // Status text
+          Positioned(
+            bottom: 20,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
                 ),
-                // Creates 8% from right side so the map looks more centered.
-                Container(width: MediaQuery.of(context).size.width * 0.08),
+                child: Text(
+                  selectedCountry != null
+                      ? 'Selected: ${_getCountryName(selectedCountry!)}'
+                      : 'Tap a country to center it',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ),
+
+          // Zoom controls
+          Positioned(
+            bottom: 80,
+            right: 20,
+            child: Column(
+              children: [
+                FloatingActionButton(
+                  mini: true,
+                  child: Icon(Icons.add),
+                  tooltip: 'Zoom in',
+                  onPressed: () {
+                    // Create a smooth zoom animation
+                    final Matrix4 currentMatrix =
+                        _transformationController.value;
+                    final double currentScale =
+                        currentMatrix.getMaxScaleOnAxis();
+
+                    if (currentScale < 75.0) {
+                      final Matrix4 targetMatrix = Matrix4.copy(currentMatrix)
+                        ..scale(1.5);
+
+                      _animation = Matrix4Tween(
+                        begin: currentMatrix,
+                        end: targetMatrix,
+                      ).animate(CurvedAnimation(
+                        parent: _animationController,
+                        curve: Curves.easeInOut,
+                      ));
+
+                      _animationController.reset();
+                      _animationController.forward();
+                    }
+                  },
+                ),
+                SizedBox(height: 8),
+                FloatingActionButton(
+                  mini: true,
+                  child: Icon(Icons.remove),
+                  tooltip: 'Zoom out',
+                  onPressed: () {
+                    // Create a smooth zoom out animation
+                    final Matrix4 currentMatrix =
+                        _transformationController.value;
+                    final double currentScale =
+                        currentMatrix.getMaxScaleOnAxis();
+
+                    if (currentScale > 0.2) {
+                      final Matrix4 targetMatrix = Matrix4.copy(currentMatrix)
+                        ..scale(1 / 1.5);
+
+                      _animation = Matrix4Tween(
+                        begin: currentMatrix,
+                        end: targetMatrix,
+                      ).animate(CurvedAnimation(
+                        parent: _animationController,
+                        curve: Curves.easeInOut,
+                      ));
+
+                      _animationController.reset();
+                      _animationController.forward();
+                    }
+                  },
+                ),
               ],
             ),
           ),
-        ),
-        Positioned(
-            bottom: 36,
-            left: 0,
-            right: 0,
-            child: Text('Tap / click a country to see its map',
-                style: TextStyle(fontSize: 18), textAlign: TextAlign.center)),
-      ],
+
+          // Go to details button
+          if (selectedCountry != null)
+            Positioned(
+              bottom: 80,
+              left: 20,
+              child: FloatingActionButton.extended(
+                icon: Icon(Icons.map),
+                label: Text('View Country'),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          CountryPage(country: selectedCountry!),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
     );
   }
 
-  void goToCountry(String country) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CountryPage(country: country),
-      ),
-    );
+  // Get country colors with highlighted selection
+  Map<String, Color> _getCountryColors() {
+    Map<String, Color> colors = {};
+    for (String code in _topCountries) {
+      colors[code] = (code == selectedCountry) ? Colors.blue : Colors.green;
+    }
+    return colors;
+  }
+
+  // Convert country code to name
+  String _getCountryName(String code) {
+    Map<String, String> names = {
+      'us': 'United States',
+      'ca': 'Canada',
+      'gb': 'United Kingdom',
+      'fr': 'France',
+      'de': 'Germany',
+      'jp': 'Japan',
+      'au': 'Australia',
+      'br': 'Brazil',
+      'ru': 'Russia',
+      'in': 'India',
+      'cn': 'China',
+      'it': 'Italy',
+      'es': 'Spain',
+      'mx': 'Mexico',
+      'kr': 'South Korea',
+      'sa': 'Saudi Arabia',
+      'za': 'South Africa',
+      'eg': 'Egypt',
+      'tr': 'Turkey',
+      'id': 'Indonesia',
+      'ng': 'Nigeria',
+    };
+    return names[code] ?? code.toUpperCase();
   }
 }
 
@@ -216,10 +409,13 @@ class CountryPage extends StatefulWidget {
 class _CountryPageState extends State<CountryPage> {
   late String state;
   late String instruction;
-
   late List<Map<String, dynamic>> properties;
-
   late Map<String, Color?> keyValuesPaires;
+
+  // Add these new fields
+  final TransformationController _transformationController =
+      TransformationController();
+  final GlobalKey _mapKey = GlobalKey();
 
   @override
   void initState() {
@@ -277,6 +473,9 @@ class _CountryPageState extends State<CountryPage> {
                                   : Colors.green;
                           keyValuesPaires[properties[i]['id']] =
                               properties[i]['color'];
+
+                          // Add this line to center the selected state/province
+                          centerOnState(id);
                         });
                       },
                     ))),
@@ -782,6 +981,86 @@ class _CountryPageState extends State<CountryPage> {
 
       default:
         return 'NOT SUPPORTED';
+    }
+  }
+
+  void centerOnState(String id) {
+    void centerOnState(String stateId) {
+      try {
+        // Get the center of the state by analyzing its path
+        Map<String, dynamic> countryData = json.decode(instruction);
+        double mapWidth = countryData['w'].toDouble();
+        double mapHeight = countryData['h'].toDouble();
+
+        // Find the state's path data
+        List paths = countryData['i'];
+        List<String>? statePath;
+
+        for (var path in paths) {
+          if (path['u'] == stateId) {
+            statePath = List<String>.from(path['i']);
+            break;
+          }
+        }
+
+        if (statePath == null) {
+          print('State path not found for: $stateId');
+          return;
+        }
+
+        // Calculate bounds of the state
+        double minX = double.infinity;
+        double minY = double.infinity;
+        double maxX = -double.infinity;
+        double maxY = -double.infinity;
+        int pointCount = 0;
+
+        for (String instruction in statePath) {
+          if (instruction.startsWith('m') || instruction.startsWith('l')) {
+            List<String> coords = instruction.substring(1).split(',');
+            if (coords.length >= 2) {
+              double x = double.parse(coords[0]);
+              double y = double.parse(coords[1]);
+
+              minX = x < minX ? x : minX;
+              minY = y < minY ? y : minY;
+              maxX = x > maxX ? x : maxX;
+              maxY = y > maxY ? y : maxY;
+              pointCount++;
+            }
+          }
+        }
+
+        if (pointCount > 0) {
+          // Calculate center point
+          double centerX = (minX + maxX) / 2 * mapWidth;
+          double centerY = (minY + maxY) / 2 * mapHeight;
+
+          // Get current scale
+          final double currentScale =
+              _transformationController.value.getMaxScaleOnAxis();
+
+          // Get viewport size
+          final RenderBox? mapBox =
+              _mapKey.currentContext?.findRenderObject() as RenderBox?;
+          if (mapBox == null) return;
+
+          final Size viewportSize = mapBox.size;
+
+          // Calculate transformation matrix
+          final Matrix4 matrix = Matrix4.identity()
+            ..scale(currentScale, currentScale)
+            ..translate(
+              -centerX + viewportSize.width / (2 * currentScale),
+              -centerY + viewportSize.height / (2 * currentScale),
+            );
+
+          // Apply transformation
+          _transformationController.value = matrix;
+        }
+      } catch (e) {
+        print('Error centering on state: $e');
+      }
     }
   }
 }
